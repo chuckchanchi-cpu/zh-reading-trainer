@@ -52,12 +52,34 @@ SKILL_LABEL = {
 }
 
 def norm_answer(s):
-    """寬鬆比對：去首尾空格、去標點"""
+    """寬鬆比對：去首尾空格、去標點、收斂內部空白"""
     if s is None:
         return ""
     s = s.strip()
     s = re.sub(r"[。，、；：！？「」『』\"'（）()…—…]", "", s)
+    s = re.sub(r"\s+", " ", s)
     return s.strip()
+
+def _match_option(ans, opts):
+    """模糊比對答案同選項：①答案係 A/B/C/D 代號 → 對應選項 ②正規化一致 ③單向包含比對（選項完整包含喺答案入面，且雙方長度 ≥4 先採用）。
+    單向包含容到 AI 加解釋字（「因為（原因）」→ 收「因為」），但唔會用「答案包含喺選項」方向，避免短答案誤配假陽性。"""
+    na = norm_answer(ans)
+    if not na:
+        return None
+    # 答案係選項代號（AI 偶爾回 A/B/C/D）→ 直接對應選項
+    if na.upper() in ("A", "B", "C", "D") and len(opts) == 4:
+        return opts["ABCD".index(na.upper())]
+    for o in opts:
+        if norm_answer(o) == na:
+            return o
+    # 單向包含比對：選項完整包含喺答案入面（AI 加咗解釋字都收貨）
+    # 守衛：選項至少 2 字（中文雙字詞係最短完整詞），且答案要包含成個選項
+    # （英文版用 ≥4 字元係因為英文單詞長；中文 2 字詞已經係完整詞語）
+    for o in opts:
+        no = norm_answer(o)
+        if len(no) >= 2 and no in na:
+            return o
+    return None
 
 def validate_questions(questions):
     """過濾唔合格題目；回傳 (valid, rejected_count)"""
@@ -67,8 +89,9 @@ def validate_questions(questions):
         if t == "mcq":
             opts = [str(o).strip() for o in q.get("options", []) if str(o).strip()]
             ans = str(q.get("answer", "")).strip()
-            if len(opts) == 4 and ans in opts and q.get("q"):
-                q["options"], q["answer"] = opts, ans
+            matched = _match_option(ans, opts)
+            if len(opts) == 4 and matched and q.get("q"):
+                q["options"], q["answer"] = opts, matched
                 valid.append(q)
         elif t == "short":
             ans = str(q.get("answer", "")).strip()

@@ -21,6 +21,11 @@ import requests
 import streamlit as st
 
 from passages import PASSAGES
+from reading_loader import load_reading_passages
+try:
+    PASSAGES = list(PASSAGES) + load_reading_passages()   # 每日一篇（Reading/）
+except Exception:
+    pass
 
 st.set_page_config(page_title="📖 中文閱讀理解訓練", page_icon="📖", layout="wide")
 

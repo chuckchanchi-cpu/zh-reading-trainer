@@ -23,7 +23,7 @@ import streamlit as st
 from passages import PASSAGES
 from reading_loader import load_reading_passages
 try:
-    PASSAGES = list(PASSAGES) + load_reading_passages()   # 每日一篇（Reading/）
+    PASSAGES = list(PASSAGES) + load_reading_passages(only_lang="中文")   # 每日一篇（Reading/）
 except Exception:
     pass
 

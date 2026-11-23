@@ -94,11 +94,13 @@ def parse_md(name, text):
     return {"title": f"《{title}》— 每日一篇", "source": f"{date} Reading/{lang}（chuck 分享）",
             "article": article, "questions": qs}
 
-def load_reading_passages():
+def load_reading_passages(only_lang=None):
     out = []
     for name, text in sorted(_fetch_texts().items()):
         try:
             item = parse_md(name, text)
+            if item and only_lang and f"Reading/{only_lang}" not in item["source"]:
+                item = None
             if item:
                 out.append(item)
         except Exception:
@@ -106,7 +108,7 @@ def load_reading_passages():
     return out
 
 if __name__ == "__main__":
-    ps = load_reading_passages()
+    ps = load_reading_passages(only_lang="中文")
     print(f"✅ 讀到 {len(ps)} 篇每日一篇：")
     for p in ps:
         print(f"  - {p['title']}｜{len(p['questions'])} 題")

@@ -22,6 +22,7 @@ import streamlit as st
 
 from passages import PASSAGES
 from reading_loader import load_reading_passages
+import vocab_loader as V
 _daily = load_reading_passages(only_lang="中文")
 try:
     PASSAGES = list(PASSAGES) + load_reading_passages(only_lang="中文")   # 每日一篇（Reading/）
@@ -238,8 +239,31 @@ if "zhq_checked" not in st.session_state:
 # ===== Sidebar =====
 with st.sidebar:
     st.header("⚙️ 設定")
-    mode = st.radio("生成模式", ["📖 題庫練習（即時）", "✨ AI 生成新篇（自訂主題）", "📥 AI 仿寫（輸入原文）"], key="zhq_mode")
-    if mode.startswith("📖"):
+    mode = st.radio("生成模式", ["📖 題庫練習（即時）", "📚 生字溫習", "✏️ 生字訓練", "✨ AI 生成新篇（自訂主題）", "📥 AI 仿寫（輸入原文）"], key="zhq_mode")
+    if mode.startswith("📚"):
+        _vw = V.load_vocab("zh")
+        st.caption(f"生字庫：{len(_vw)} 詞")
+        _groups = sorted({w["group"] for w in _vw if w["group"]})
+        _pick_g = st.multiselect("組別", _groups, default=_groups, key="zhq_vgroups")
+        if st.button("🃏 開始溫習", type="primary", use_container_width=True):
+            st.session_state["zhq_vmode"] = "study"
+            st.session_state["zhq_vfilter"] = _pick_g
+            st.rerun()
+    elif mode.startswith("✏️"):
+        _vw = V.load_vocab("zh")
+        st.caption(f"生字庫：{len(_vw)} 詞")
+        _groups = sorted({w["group"] for w in _vw if w["group"]})
+        _pick_g = st.multiselect("組別", _groups, default=_groups, key="zhq_vgroups2")
+        _kind = st.radio("題型", ["填充（例句挖空）", "選擇（問詞義）", "選擇（給解釋選詞）"], key="zhq_vkind_w")
+        _n = st.slider("題數", 5, 20, 10, key="zhq_vn_w")
+        if st.button("🎯 開始訓練", type="primary", use_container_width=True):
+            st.session_state["zhq_vmode"] = "train"
+            st.session_state["zhq_vfilter"] = _pick_g
+            st.session_state["zhq_vkind_val"] = _kind
+            st.session_state["zhq_vn_val"] = _n
+            st.session_state.pop("zhq_vround", None)
+            st.rerun()
+    elif mode.startswith("📖"):
         pmap = {f"{p['title']}（{p['source']}）": p for p in PASSAGES}
         choice = st.selectbox("揀篇章", list(pmap.keys()), key="zhq_pick")
         if st.button("🎲 開始練習", type="primary", use_container_width=True):
@@ -269,6 +293,123 @@ with st.sidebar:
                     st.rerun()
     st.divider()
     st.caption("題型：細節 / 推論 / 詞義 / 修辭 / 主旨 / 短答\n每題附 💡提示 + ⚠️陷阱")
+
+# ===== 生字：溫習 / 訓練 =====
+_vmode = st.session_state.get("zhq_vmode")
+if _vmode == "study":
+    _all = V.load_vocab("zh")
+    _gsel = st.session_state.get("zhq_vfilter") or []
+    _words = [w for w in _all if not _gsel or w["group"] in _gsel]
+    st.title("📚 生字溫習")
+    st.caption(f"共 {len(_words)} 詞　｜　睇字 → 意義 → 例句")
+    if not _words:
+        st.warning("⚠️ 呢個組別未有任何生字")
+        if st.button("⬅️ 返回"):
+            st.session_state.pop("zhq_vmode", None)
+            st.rerun()
+        st.stop()
+    if "zhq_card" not in st.session_state or st.session_state.get("zhq_card_n") != len(_words):
+        st.session_state["zhq_card"] = 0
+        st.session_state["zhq_card_n"] = len(_words)
+    i = st.session_state["zhq_card"] % len(_words)
+    w = _words[i]
+    st.progress((i + 1) / len(_words), text=f"第 {i+1} / {len(_words)} 張")
+    with st.container(border=True):
+        st.markdown(f"## {w['word']}")
+        if w["group"]:
+            st.caption(f"📁 {w['group']}")
+        st.markdown(f"**解釋**　{w['explain']}")
+        if w["example"]:
+            st.markdown(f"**例句**　{w['example']}")
+    c1, c2, c3, _ = st.columns([1, 1, 1, 2])
+    if c1.button("⬅️ 上一張", use_container_width=True):
+        st.session_state["zhq_card"] = (i - 1) % len(_words)
+        st.rerun()
+    if c2.button("下一張 ➡️", type="primary", use_container_width=True):
+        st.session_state["zhq_card"] = (i + 1) % len(_words)
+        st.rerun()
+    if c3.button("🎲 隨機", use_container_width=True):
+        import random as _r
+        st.session_state["zhq_card"] = _r.randrange(len(_words))
+        st.rerun()
+    st.divider()
+    with st.expander("📋 全部生字一覽"):
+        for w2 in _words:
+            st.markdown(f"- **{w2['word']}** — {w2['explain']}")
+    if st.button("⬅️ 返回閱讀"):
+        st.session_state.pop("zhq_vmode", None)
+        st.rerun()
+    st.stop()
+
+if _vmode == "train":
+    _all = V.load_vocab("zh")
+    _gsel = st.session_state.get("zhq_vfilter") or []
+    _words = [w for w in _all if not _gsel or w["group"] in _gsel]
+    _kind = st.session_state.get("zhq_vkind_val", "填充（例句挖空）")
+    _n = st.session_state.get("zhq_vn_val", 10)
+    st.title("✏️ 生字訓練")
+    if not _words:
+        st.warning("⚠️ 呢個組別未有任何生字")
+        st.stop()
+    if "zhq_vround" not in st.session_state:
+        import random as _r
+        rng = _r.Random()
+        if _kind.startswith("填充"):
+            qs = V.build_fill(_words, _n, rng)
+        elif _kind.startswith("選擇（問詞義"):
+            qs = V.build_mc(_words, _n, rng)
+        else:
+            qs = V.build_word_mc(_words, _n, rng)
+        st.session_state["zhq_vround"] = qs
+        st.session_state["zhq_vchecked"] = False
+    qs = st.session_state["zhq_vround"]
+    st.caption(f"{_kind}　｜　{len(qs)} 題　｜　共 {len(_words)} 詞可出題")
+    if not qs:
+        st.warning("⚠️ 生字不足，無法出題（至少需要 4 詞）")
+        st.stop()
+    if not st.session_state.get("zhq_vchecked"):
+        with st.form("zhq_vform"):
+            for j, q in enumerate(qs):
+                st.markdown(f"**{j+1}.** {q['q']}")
+                if q["type"] == "fill":
+                    st.text_input("答案", key=f"zhq_vf{j}", label_visibility="collapsed",
+                                  placeholder="輸入生字")
+                else:
+                    st.radio("選項", q["options"], key=f"zhq_vm{j}", index=None,
+                             label_visibility="collapsed")
+                st.caption(f"💡 {q.get('hint', '')}" if q.get("hint") else "")
+            if st.form_submit_button("✅ 提交", type="primary", use_container_width=True):
+                st.session_state["zhq_vchecked"] = True
+                st.rerun()
+    else:
+        ok = 0
+        for j, q in enumerate(qs):
+            if q["type"] == "fill":
+                u = (st.session_state.get(f"zhq_vf{j}") or "").strip()
+                good = u == q["answer"] or u.lower() == q["answer"].lower()
+            else:
+                u = st.session_state.get(f"zhq_vm{j}")
+                good = (u == q["answer"])
+            ok += good
+            st.markdown(f"**{j+1}.** {q['q']}")
+            if good:
+                st.success(f"✅ 正確：{q['answer']}")
+            else:
+                st.error(f"❌ 你答：{u or '（未答）'}　正確答案：**{q['answer']}**")
+            st.caption(f"生字：{q.get('word','')}　｜　{q.get('group','')}")
+        st.metric("得分", f"{ok} / {len(qs)}")
+        if ok == len(qs):
+            st.balloons()
+        c1, c2 = st.columns(2)
+        if c1.button("🔄 再練一次", type="primary", use_container_width=True):
+            st.session_state.pop("zhq_vround", None)
+            st.session_state["zhq_vchecked"] = False
+            st.rerun()
+        if c2.button("⬅️ 返回閱讀", use_container_width=True):
+            st.session_state.pop("zhq_vmode", None)
+            st.session_state.pop("zhq_vround", None)
+            st.rerun()
+    st.stop()
 
 # ===== 主頁 =====
 st.title("📖 中文閱讀理解訓練")
